@@ -20,7 +20,7 @@ import { DiscordStore } from "./store";
 import { DbEmoji } from "./db/dbdataemoji";
 import { DbEvent } from "./db/dbdataevent";
 import { DiscordMessageProcessor } from "./discordmessageprocessor";
-import { IDiscordMessageParserResult } from "matrix-discord-parser";
+import { IDiscordMessageParserResult } from "@mx-puppet/matrix-discord-parser";
 import { MatrixEventProcessor, MatrixEventProcessorOpts, IMatrixEventProcessorResult } from "./matrixeventprocessor";
 import { PresenceHandler } from "./presencehandler";
 import { Provisioner } from "./provisioner";
@@ -94,7 +94,6 @@ class DiscordBridgeBlocker extends BridgeBlocker {
 export class DiscordBot {
     private clientFactory: DiscordClientFactory;
     private _bot: Discord.Client|undefined;
-    private presenceInterval: number;
     private sentMessages: string[];
     private lastEventIds: { [channelId: string]: string };
     private discordMsgProcessor: DiscordMessageProcessor;
@@ -218,7 +217,9 @@ export class DiscordBot {
         if (this.config.bridge.userLimit !== null) {
             log.info(`Bridge blocker is enabled with a user limit of ${this.config.bridge.userLimit}`);
             this.bridgeBlocker = new DiscordBridgeBlocker(this.config.bridge.userLimit, this);
-            this.bridgeBlocker?.checkLimits(activeUsers);
+            this.bridgeBlocker?.checkLimits(activeUsers).catch(err => {
+                log.error(`Failed to check bridge limits: ${err}`);
+            });
         }
     }
 
@@ -342,7 +343,7 @@ export class DiscordBot {
         client.on("userUpdate", async (_, user) => {
             try {
                 if (!(user instanceof Discord.User)) {
-                    log.warn(`Ignoring update for ${user.username}. User was partial.`);
+                    log.warn(`Ignoring update for ${(<any>user).username}. User was partial.`);
                     return;
                 }
                 await this.userSync.OnUpdateUser(user);
@@ -351,7 +352,7 @@ export class DiscordBot {
         client.on("guildMemberAdd", async (member) => {
             try {
                 if (!(member instanceof Discord.GuildMember)) {
-                    log.warn(`Ignoring update for ${member.guild.id} ${member.id}. User was partial.`);
+                    log.warn(`Ignoring update for ${(<any>member).guild?.id} ${(<any>member).id}. User was partial.`);
                     return;
                 }
                 await this.userSync.OnAddGuildMember(member);
@@ -369,7 +370,7 @@ export class DiscordBot {
         client.on("guildMemberUpdate", async (_, member) => {
             try {
                 if (!(member instanceof Discord.GuildMember)) {
-                    log.warn(`Ignoring update for ${member.guild.id} ${member.id}. User was partial.`);
+                    log.warn(`Ignoring update for ${(<any>member).guild.id} ${(<any>member).id}. User was partial.`);
                     return;
                 }
                 await this.userSync.OnUpdateGuildMember(member);
@@ -1249,7 +1250,9 @@ export class DiscordBot {
             await this.store.storeUserActivity(userId, state.dataSet.users[userId]);
         }
         log.verbose(`Checking bridge limits (${state.activeUsers} active users)`);
-        this.bridgeBlocker?.checkLimits(state.activeUsers);
+        this.bridgeBlocker?.checkLimits(state.activeUsers).catch(err => {
+            log.error(`Failed to check bridge limits: ${err}`);
+        });;
         MetricPeg.get.setRemoteMonthlyActiveUsers(state.activeUsers);
     }
 }
@@ -1292,7 +1295,9 @@ class AdminNotifier {
             await this.client.inviteUser(mxid, roomId);
         } catch (err) {
             log.verbose(`Failed to invite ${mxid} to ${roomId}, cleaning up`);
-            this.client.leaveRoom(roomId); // no point awaiting it, nothing we can do if we fail
+            this.client.leaveRoom(roomId).catch(err => {
+                log.error(`Failed to clean up to-be-DM room ${roomId}: ${err}`);
+            });
             throw err;
         }
 
