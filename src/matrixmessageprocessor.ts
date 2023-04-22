@@ -49,7 +49,10 @@ export class MatrixMessageProcessor {
         params?: IMatrixMessageProcessorParams,
     ): Promise<string> {
         const opts = this.getParserOpts(msg, guild, params);
-        return this.parser.FormatMessage(opts, msg);
+        return this.parser.FormatMessage(opts, msg).then(
+		result => result.replace(
+			/\[([^\]]+)\]\(https:\/\/matrix\.to\/#\/@[^)]+\)/g,
+			'$1'));
     }
 
     private getParserOpts(
